@@ -25,7 +25,8 @@ class BaseBoostingAssembler(ModelAssembler):
         model_class_name = type(model).__name__
         if model_class_name in self.classifier_names:
             if hasattr(model, 'dump_model'):
-                if model.dump_model()['objective'] in ['binary', 'multiclass', 'multiclassova']:
+                obj = model.dump_model().get("objective", "custom").split(" ")[0]
+                if obj in ['binary', 'multiclass', 'multiclassova']:
                     self._is_classification = True
                     if hasattr(model,'n_classes_'):
                         if model.n_classes_ > 2:
