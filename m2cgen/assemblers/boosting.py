@@ -24,13 +24,20 @@ class BaseBoostingAssembler(ModelAssembler):
 
         model_class_name = type(model).__name__
         if model_class_name in self.classifier_names:
-            self._is_classification = True
-            if hasattr(model,'n_classes_'):
+            if hasattr(model, 'dump_model'):
+                if model.dump_model()['objective'] in ['binary', 'multiclass', 'multiclassova']:
+                    self._is_classification = True
+                    if hasattr(model,'n_classes_'):
+                        if model.n_classes_ > 2:
+                            self._output_size = model.n_classes_
+                    else:
+                        if model._Booster__num_class > 1:
+                            self._output_size = model.n_classes_ + 1
+            else:
+                self._is_classification = True
                 if model.n_classes_ > 2:
                     self._output_size = model.n_classes_
-            else:
-                if model._Booster__num_class > 1:
-                    self._output_size = model.n_classes_ + 1
+
 
     def assemble(self):
         if self._is_classification:
