@@ -21,24 +21,17 @@ class BaseBoostingAssembler(ModelAssembler):
 
         self._output_size = 1
         self._is_classification = False
-
-        model_class_name = type(model).__name__
-        if model_class_name in self.classifier_names:
-            if hasattr(model, 'dump_model'):
-                obj = model.dump_model().get("objective", "custom").split(" ")[0]
-                if obj in ['binary', 'multiclass', 'multiclassova']:
-                    self._is_classification = True
-                    if hasattr(model,'n_classes_'):
-                        if model.n_classes_ > 2:
-                            self._output_size = model.n_classes_
-                    else:
-                        if model._Booster__num_class > 1:
-                            self._output_size = model.n_classes_ + 1
-            else:
+        
+        if model.__module__ =='lightgbm.basic':
+            obj = model.dump_model().get("objective", "custom").split(" ")[0]
+            if obj in ['binary', 'multiclass', 'multiclassova', 'num_class']:
                 self._is_classification = True
-                if model.n_classes_ > 2:
-                    self._output_size = model.n_classes_
-
+                if model._Booster__num_class > 1:
+                    self._output_size = model.n_classes_ + 1
+        elif type(model).__name__ in self.classifier_names:
+            self._is_classification = True
+            if model.n_classes_ > 2:
+                self._output_size = model.n_classes_
 
     def assemble(self):
         if self._is_classification:
