@@ -2,7 +2,8 @@ from m2cgen.assemblers.boosting import (
     LightGBMModelAssembler,
     XGBoostLinearModelAssembler,
     XGBoostModelAssemblerSelector,
-    XGBoostTreeModelAssembler
+    XGBoostTreeModelAssembler,
+    LightGBMBoosterAssembler
 )
 from m2cgen.assemblers.ensemble import RandomForestModelAssembler
 from m2cgen.assemblers.linear import (
@@ -28,6 +29,7 @@ __all__ = [
     XGBoostTreeModelAssembler,
     XGBoostLinearModelAssembler,
     LightGBMModelAssembler,
+    LightGBMBoosterAssembler,
     SklearnSVMModelAssembler,
     LightningSVMModelAssembler,
     StatsmodelsGLMModelAssembler,
@@ -40,6 +42,7 @@ SUPPORTED_MODELS = {
     # LightGBM
     "lightgbm_LGBMClassifier": LightGBMModelAssembler,
     "lightgbm_LGBMRegressor": LightGBMModelAssembler,
+    "lightgbm_Booster": LightGBMBoosterAssembler,
 
     # XGBoost
     "xgboost_XGBClassifier": XGBoostModelAssemblerSelector,
