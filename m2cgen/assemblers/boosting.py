@@ -223,7 +223,7 @@ class BaseLightGBMAssembler(BaseTreeBoostingAssembler):
     
     classifier_names = {}
     
-    def __init__(self, model):
+    def __init__(self, model, trees):
         '''
         model_dump = model.booster_.dump_model()
         trees = [m["tree_structure"] for m in model_dump["tree_info"]]
