@@ -219,6 +219,163 @@ class XGBoostModelAssemblerSelector(ModelAssembler):
         return self.assembler.assemble()
 
 
+class BaseLightGBMAssembler(BaseTreeBoostingAssembler):
+    
+    classifier_names = {}
+    
+    def __init__(self, model):
+        '''
+        model_dump = model.booster_.dump_model()
+        trees = [m["tree_structure"] for m in model_dump["tree_info"]]
+
+        self.n_iter = len(trees) // model_dump["num_tree_per_iteration"]
+        self.average_output = model_dump.get("average_output", False)
+        self.objective_config_parts = model_dump.get("objective", "custom").split(" ")
+        self.objective_name = self.objective_config_parts[0]
+        '''
+        super().__init__(model, trees)
+
+    def _final_transform(self, ast_to_transform):
+        if self.average_output:
+            coef = 1 / self.n_iter
+            return utils.apply_bin_op(
+                ast_to_transform,
+                ast.NumVal(coef),
+                ast.BinNumOpType.MUL)
+        else:
+            return super()._final_transform(ast_to_transform)
+
+    def _multi_class_convert_output(self, exprs):
+        supported_objectives = {
+            "multiclass": super()._multi_class_convert_output,
+            "multiclassova": self._multi_class_sigmoid_transform,
+            "custom": super()._single_convert_output,
+        }
+        if self.objective_name not in supported_objectives:
+            raise ValueError(f"Unsupported objective function '{self.objective_name}'")
+        return supported_objectives[self.objective_name](exprs)
+
+    def _multi_class_sigmoid_transform(self, exprs):
+        return ast.VectorVal([
+            self._bin_class_sigmoid_transform(expr, to_reuse=False)
+            for expr in exprs
+        ])
+
+    def _bin_class_convert_output(self, expr, to_reuse=True):
+        supported_objectives = {
+            "binary": self._bin_class_sigmoid_transform,
+            "custom": super()._single_convert_output,
+        }
+        if self.objective_name not in supported_objectives:
+            raise ValueError(f"Unsupported objective function '{self.objective_name}'")
+        return supported_objectives[self.objective_name](expr)
+
+    def _bin_class_sigmoid_transform(self, expr, to_reuse=True):
+        coef = 1.0
+        for config_part in self.objective_config_parts:
+            config_entry = config_part.split(":")
+            if config_entry[0] == "sigmoid":
+                coef = np.float64(config_entry[1])
+                break
+        return super()._bin_class_convert_output(
+            utils.mul(ast.NumVal(coef), expr) if coef != 1.0 else expr,
+            to_reuse=to_reuse)
+
+    def _single_convert_output(self, expr):
+        supported_objectives = {
+            "cross_entropy": ast.SigmoidExpr,
+            "cross_entropy_lambda": self._log1p_exp_transform,
+            "regression": self._maybe_sqr_transform,
+            "regression_l1": self._maybe_sqr_transform,
+            "huber": super()._single_convert_output,
+            "fair": self._maybe_sqr_transform,
+            "poisson": self._exp_transform,
+            "quantile": self._maybe_sqr_transform,
+            "mape": self._maybe_sqr_transform,
+            "gamma": self._exp_transform,
+            "tweedie": self._exp_transform,
+            "custom": super()._single_convert_output,
+        }
+        if self.objective_name not in supported_objectives:
+            raise ValueError(
+                f"Unsupported objective function '{self.objective_name}'")
+        return supported_objectives[self.objective_name](expr)
+
+    def _log1p_exp_transform(self, expr):
+        return ast.Log1pExpr(ast.ExpExpr(expr))
+
+    def _maybe_sqr_transform(self, expr):
+        if "sqrt" in self.objective_config_parts:
+            expr = ast.IdExpr(expr, to_reuse=True)
+            return utils.mul(ast.AbsExpr(expr), expr)
+        else:
+            return expr
+
+    def _exp_transform(self, expr):
+        return ast.ExpExpr(expr)
+
+    def _assemble_tree(self, tree):
+        if "leaf_value" in tree:
+            return ast.NumVal(tree["leaf_value"])
+
+        threshold = ast.NumVal(tree["threshold"])
+        feature_ref = ast.FeatureRef(tree["split_feature"])
+
+        op = ast.CompOpType.from_str_op(tree["decision_type"])
+        assert op == ast.CompOpType.LTE, "Unexpected comparison op"
+
+        missing_type = tree['missing_type']
+
+        if missing_type not in {"NaN", "None"}:
+            raise ValueError(f"Unknown missing_type: {missing_type}")
+
+        reverse_condition = missing_type == "NaN" and tree["default_left"]
+        reverse_condition |= missing_type == "None" and tree["threshold"] >= 0
+        if reverse_condition:
+            op = ast.CompOpType.GT
+            true_child = tree["right_child"]
+            false_child = tree["left_child"]
+        else:
+            true_child = tree["left_child"]
+            false_child = tree["right_child"]
+
+        return ast.IfExpr(
+            ast.CompExpr(feature_ref, threshold, op),
+            self._assemble_tree(true_child),
+            self._assemble_tree(false_child))
+
+
+class LightGBMModelAssembler(BaseLightGBMAssembler):
+
+    classifier_names = {"LGBMClassifier"}
+    
+    def __init__(self, model):
+        model_dump = model.booster_.dump_model()
+        trees = [m["tree_structure"] for m in model_dump["tree_info"]]
+
+        self.n_iter = len(trees) // model_dump["num_tree_per_iteration"]
+        self.average_output = model_dump.get("average_output", False)
+        self.objective_config_parts = model_dump.get("objective", "custom").split(" ")
+        self.objective_name = self.objective_config_parts[0]
+
+        super().__init__(model, trees)
+        
+
+class LightGBMBoosterAssembler(BaseLightGBMAssembler):
+
+    classifier_names = {"Booster"}
+    
+    def __init__(self, model):
+        model_dump = model.dump_model()
+        trees = [m["tree_structure"] for m in model_dump["tree_info"]]
+
+        self.n_iter = len(trees) // model_dump["num_tree_per_iteration"]
+        self.average_output = model_dump.get("average_output", False)
+        self.objective_config_parts = model_dump.get("objective", "custom").split(" ")
+        self.objective_name = self.objective_config_parts[0]
+
+        super().__init__(model, trees)
+''''
 class LightGBMModelAssembler(BaseTreeBoostingAssembler):
 
     classifier_names = {"LGBMClassifier"}
@@ -467,7 +624,7 @@ class LightGBMBoosterAssembler(BaseTreeBoostingAssembler):
             ast.CompExpr(feature_ref, threshold, op),
             self._assemble_tree(true_child),
             self._assemble_tree(false_child))
-
+'''
 
 def _split_estimator_params_by_classes(values, n_classes, params_seq_len):
     # Splits are computed based on a comment
